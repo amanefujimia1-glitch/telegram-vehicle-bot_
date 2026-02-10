@@ -1,103 +1,94 @@
 import os
+import requests
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     ApplicationBuilder,
     CommandHandler,
+    MessageHandler,
     ContextTypes,
+    filters
 )
-from telegram.constants import ChatMemberStatus
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = int(os.getenv("OWNER_ID"))
 CHANNEL_ID = int(os.getenv("CHANNEL_ID"))
 
-authorized_users = set([OWNER_ID])
+AUTHORIZED_USERS = set([OWNER_ID])
 
-# ---------- JOIN CHECK ----------
-async def is_user_joined(user_id, context):
-    try:
-        member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
-        return member.status in [
-            ChatMemberStatus.MEMBER,
-            ChatMemberStatus.ADMINISTRATOR,
-            ChatMemberStatus.OWNER,
-        ]
-    except:
-        return False
+API_URL = "https://amane.djsouravrooj33.workers.dev/?rc="
 
-# ---------- START ----------
+OWNER_USERNAME = "@amane_loyal_me"
+
+
+# 🔐 Channel check
+async def check_join(update: Update):
+    user = update.effective_user
+    member = await update.bot.get_chat_member(CHANNEL_ID, user.id)
+    return member.status in ["member", "administrator", "creator"]
+
+
+# /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-
-    if not await is_user_joined(user_id, context):
+    joined = await check_join(update)
+    if not joined:
         keyboard = [
-            [InlineKeyboardButton("🔔 Join Channel", url="https://t.me/your_channel_username")]
+            [InlineKeyboardButton("🔔 Join Channel", url="https://t.me/amane_loyal_me")]
         ]
         await update.message.reply_text(
-            "❌ Bot use করতে হলে আগে channel join করো",
+            "❌ আগে Channel Join করো",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
         return
 
     await update.message.reply_text(
-        "✅ Bot Ready!\n"
-        "Owner: @amane_loyal_me\n\n"
-        "Commands:\n"
-        "/help"
+        f"✅ Bot Ready!\nOwner: {OWNER_USERNAME}\n\nRC Number পাঠাও"
     )
 
-# ---------- HELP ----------
+
+# /help
 async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "📌 Help Menu\n\n"
-        "/adduser <id> – Authorize user (Owner only)\n"
-        "/search <query> – Search\n\n"
-        "Owner: @amane_loyal_me"
+        "/start - Bot start\n"
+        "/adduser <id> - Authorize user (Owner only)\n"
+        "RC Number পাঠিয়ে search করো"
     )
 
-# ---------- ADD USER ----------
-async def adduser(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+# /adduser
+async def add_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != OWNER_ID:
-        await update.message.reply_text("❌ Only owner can use this")
         return
 
-    if not context.args:
-        await update.message.reply_text("Usage: /adduser <user_id>")
-        return
+    try:
+        uid = int(context.args[0])
+        AUTHORIZED_USERS.add(uid)
+        await update.message.reply_text(f"✅ User {uid} Authorized")
+    except:
+        await update.message.reply_text("❌ Use: /adduser user_id")
 
-    uid = int(context.args[0])
-    authorized_users.add(uid)
-    await update.message.reply_text(f"✅ User {uid} authorized")
 
-# ---------- SEARCH ----------
-async def search(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# RC search
+async def search_rc(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
 
-    if user_id not in authorized_users:
+    if user_id not in AUTHORIZED_USERS:
         await update.message.reply_text("❌ You are not authorized")
         return
 
-    query = " ".join(context.args)
-    if not query:
-        await update.message.reply_text("Usage: /search <text>")
-        return
+    rc = update.message.text.strip()
+    res = requests.get(API_URL + rc).text
 
     await update.message.reply_text(
-        f"🔎 Search Result for: {query}\n"
-        f"Requested by: @amane_loyal_me"
+        f"🔍 Result by {OWNER_USERNAME}\n\n{res}"
     )
 
-# ---------- MAIN ----------
-def main():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("help", help_cmd))
-    app.add_handler(CommandHandler("adduser", adduser))
-    app.add_handler(CommandHandler("search", search))
+# Main
+app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    print("Bot running...")
-    app.run_polling()
+app.add_handler(CommandHandler("start", start))
+app.add_handler(CommandHandler("help", help_cmd))
+app.add_handler(CommandHandler("adduser", add_user))
+app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, search_rc))
 
-if __name__ == "__main__":
-    main()
+app.run_polling()
